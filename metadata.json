@@ -1,0 +1,5 @@
+{
+  "name": "SocialRetro",
+  "description": "A nostalgic hybrid social network blending the best features of Hi5, Fotolog, Facebook, and Instagram with real-time chat and profile customization.",
+  "requestFramePermissions": ["camera", "microphone"]
+}

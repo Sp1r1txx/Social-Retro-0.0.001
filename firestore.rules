@@ -1,0 +1,145 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: userId (uid)
+// Fields:
+//   - uid: string (required)
+//   - username: string (required)
+//   - display_name: string (required)
+//   - bio: string
+//   - profile_pic: string
+//   - custom_bg: string
+//   - custom_color: string
+//   - security_question: string
+//   - security_answer: string
+//   - created_at: string (ISO 8601)
+//
+// Collection: posts
+// Document ID: postId
+// Fields:
+//   - uid: string (required)
+//   - username: string
+//   - display_name: string
+//   - profile_pic: string
+//   - image_url: string (required)
+//   - caption: string
+//   - likes_count: number
+//   - comments_count: number
+//   - created_at: string (ISO 8601)
+//
+// Collection: posts/{postId}/comments
+// Document ID: commentId
+// Fields:
+//   - post_id: string (required)
+//   - uid: string (required)
+//   - username: string
+//   - display_name: string
+//   - profile_pic: string
+//   - content: string (required)
+//   - created_at: string (ISO 8601)
+//
+// Collection: messages
+// Document ID: messageId
+// Fields:
+//   - sender_id: string (required)
+//   - receiver_id: string (required)
+//   - content: string (required)
+//   - created_at: string (ISO 8601)
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "narutoandluigui@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'username', 'display_name']) &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.username is string && data.username.size() >= 3 && data.username.size() <= 30 &&
+             data.display_name is string && data.display_name.size() > 0 && data.display_name.size() <= 50;
+    }
+
+    function isValidPost(data) {
+      return data.keys().hasAll(['uid', 'image_url', 'created_at']) &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.image_url is string && data.image_url.size() > 0 &&
+             isValidDateString(data.created_at);
+    }
+
+    function isValidComment(data) {
+      return data.keys().hasAll(['post_id', 'uid', 'content', 'created_at']) &&
+             data.post_id is string &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.content is string && data.content.size() > 0 && data.content.size() <= 500 &&
+             isValidDateString(data.created_at);
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['sender_id', 'receiver_id', 'content', 'created_at']) &&
+             data.sender_id is string && data.sender_id == request.auth.uid &&
+             data.receiver_id is string &&
+             data.content is string && data.content.size() > 0 && data.content.size() <= 1000 &&
+             isValidDateString(data.created_at);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && 
+                    request.resource.data.uid == resource.data.uid;
+    }
+
+    match /posts/{postId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidPost(request.resource.data);
+      allow update: if isAuthenticated() && (request.auth.uid == resource.data.uid || isAdmin());
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.uid || isAdmin());
+
+      match /comments/{commentId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && isValidComment(request.resource.data);
+        allow delete: if isAuthenticated() && (request.auth.uid == resource.data.uid || isAdmin());
+      }
+    }
+
+    match /messages/{messageId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.sender_id || request.auth.uid == resource.data.receiver_id);
+      allow create: if isAuthenticated() && isValidMessage(request.resource.data);
+    }
+  }
+}
